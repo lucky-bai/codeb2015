@@ -4,7 +4,9 @@ import time
 import datetime
 import copy
   
+sock = None
 def once_run(*commands):
+  global sock
   HOST, PORT = "codebb.cloudapp.net", 17429
   
   data=OUR_USERNAME + " " + OUR_PASSWORD + "\n" + "\n".join(commands) + "\nCLOSE_CONNECTION\n"
@@ -12,6 +14,8 @@ def once_run(*commands):
 
   try:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    #print socket.gettimeout()
+    sock.settimeout(3)
 
     sock.connect((HOST, PORT))
     sock.sendall(data)
@@ -215,7 +219,7 @@ def smart_sell_1_iter(stock):
   this_ord = orders[stock]
 
   _, cur_sell = get_buy_and_sell_prices(this_ord)
-  want_price = cur_sell - 0.04
+  want_price = cur_sell - 0.06
 
   num_shares = int(my_securities[stock][0])
   print "Selling %s: %d shares at %f" % (stock, num_shares, want_price)
@@ -235,39 +239,17 @@ def smart_sell(stock):
     time.sleep(3)
 
 
-def slow_buy(stock):
-  while True:
-    get_cash()
-    get_orders(stock)
-    this_ord = orders[stock]
+def slow_sell_1_iter(stock):
+  get_my_securities()
+  get_orders(stock)
+  this_ord = orders[stock]
 
-    cur_buy, cur_sell = get_buy_and_sell_prices(this_ord)
-    want_price = cur_buy + 0.04
+  _, cur_sell = get_buy_and_sell_prices(this_ord)
+  want_price = cur_sell - 0.01
 
-    num_shares = int(my_cash / want_price)
-    if num_shares < 5:
-      break
-
-    print "Buying %s: %d shares at %f" % (stock, num_shares, want_price)
-    run("BID %s %f %d"% (stock, want_price, num_shares))
-    time.sleep(3)
-
-def slow_sell(stock):
-  while True:
-    get_my_securities()
-    get_orders(stock)
-    this_ord = orders[stock]
-
-    cur_buy, cur_sell = get_buy_and_sell_prices(this_ord)
-    want_price = cur_sell - 0.04
-
-    num_shares = int(my_securities[stock][0])
-    if num_shares == 0:
-      break
-
-    print "Selling %s: %d shares at %f" % (stock, num_shares, want_price)
-    run("ASK %s %f %d"% (stock, want_price, num_shares))
-    time.sleep(3)
+  num_shares = int(my_securities[stock][0])
+  print "Selling %s: %d shares at %f" % (stock, num_shares, want_price)
+  run("ASK %s %f %d"% (stock, want_price, num_shares))
 
 
 
@@ -363,21 +345,59 @@ def autorun():
 
 
 
+def alternate_plan():
+  """
+  split pot into n equal groups
+  attempt to buy each of it
+  then sell all of it slowly
+  """
+  while True:
+    get_cash()
+    get_securities()
+
+    cash_each = my_cash / len(securities)
+
+    for sec,vs in securities.iteritems():
+      get_orders(sec)
+      cur_buy, cur_sell = get_buy_and_sell_prices(orders[sec])
+      want_price = cur_sell + 0.1
+      num_shares = int(cash_each / want_price)
+      print "Buying %s: %d shares at %f" % (sec, num_shares, want_price)
+      run("BID %s %f %d"% (sec, want_price, num_shares))
+
+    while True:
+      get_cash()
+      get_my_securities()
+      print "MY CASH:", my_cash
+      if len(sec) == 0:
+        break
+      for sec, vl in my_securities.iteritems():
+        we_hold = vl[0]
+        if we_hold > 0:
+          slow_sell_1_iter(sec)
+      time.sleep(10)
+
+  
+
+
+
 #pick_stock()
 #buy_stock("XOM")
 #smart_sell("SNY")
 #sell_stock("SNY")
 #print run("ASK SNY 0.01 8")
+
 """
 sell_stock("ATVI")
-sell_stock("C")
-sell_stock("DIS")
-sell_stock("EA")
-sell_stock("FB")
+sell_stock("BUD")
+sell_stock("CAKE")
+sell_stock("FIZZ")
+sell_stock("HOG")
+sell_stock("MMM")
+sell_stock("RY")
 sell_stock("MSFT")
-sell_stock("SNE")
-sell_stock("TSLA")
-sell_stock("XOM")
+sell_stock("TSX")
+sell_stock("YUM")
 """
 
 autorun()
