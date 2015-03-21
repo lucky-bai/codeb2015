@@ -1,8 +1,9 @@
 import socket
 import sys
 import time
+import datetime
   
-def run(*commands):
+def once_run(*commands):
   HOST, PORT = "codebb.cloudapp.net", 17429
   
   data=OUR_USERNAME + " " + OUR_PASSWORD + "\n" + "\n".join(commands) + "\nCLOSE_CONNECTION\n"
@@ -23,6 +24,16 @@ def run(*commands):
     sock.close()
 
   return return_lines
+
+def run(commands):
+  while True:
+    try:
+      data = once_run(commands)
+      return data
+    except KeyboardInterrupt:
+      raise
+    except:
+      print "Warning: network failed"
 
 def subscribe():
   HOST, PORT = "codebb.cloudapp.net", 17429
@@ -64,9 +75,11 @@ def get_cash():
   my_cash = float(run("MY_CASH")[0].split()[1])
 
 def get_my_securities():
+  global my_securities
+  my_securities = {}
   inp = run("MY_SECURITIES")[0].split()[1:]
   for i in range(len(inp)/3):
-    my_securities[inp[3*i]] = (float(inp[3*i+1]), float(inp[3*i+2]))
+    my_securities[inp[3*i]] = (int(inp[3*i+1]), float(inp[3*i+2]))
 
 def get_my_orders():
   global my_orders
@@ -160,8 +173,11 @@ def buy_stock(stock):
     buying_price = cur_sell + 0.1
     num_shares = int(my_cash / buying_price)
 
+    if num_shares == 0:
+      break
+
     print "Buying %s: %d shares at %f" % (stock, num_shares, buying_price)
-    print run("BID %s %f %d" % (stock, buying_price, num_shares))
+    run("BID %s %f %d" % (stock, buying_price, num_shares))
 
 
 def sell_stock(stock):
@@ -172,6 +188,7 @@ def sell_stock(stock):
     get highest buyer
     ask that much
   """
+  time_sold[stock] = datetime.datetime.now()
   while True:
     get_my_securities()
     get_orders(stock)
@@ -183,47 +200,55 @@ def sell_stock(stock):
     selling_price = cur_buy - 0.1
     num_shares = int(my_securities[stock][0])
 
+    if num_shares == 0:
+      break
+
     print "Selling %s: %d shares at %f" % (stock, num_shares, selling_price)
     run("ASK %s %f %d"% (stock, selling_price, num_shares))
+
+
+
+def smart_sell_1_iter(stock):
+  get_my_securities()
+  get_orders(stock)
+  this_ord = orders[stock]
+
+  _, cur_sell = get_buy_and_sell_prices(this_ord)
+  want_price = cur_sell - 0.04
+
+  num_shares = int(my_securities[stock][0])
+  print "Selling %s: %d shares at %f" % (stock, num_shares, want_price)
+  run("ASK %s %f %d"% (stock, want_price, num_shares))
 
 
 def smart_sell(stock):
   """
   Dump a stock in a smart way
 
-  cur_bid = current lowest bid - 5
   while still has stock:
-    try to sell everything at cur bid
-    subtract 5 from cur bid
+    try to sell everything at cur bid - 0.02
     wait 3 second and loop again
   """
-  want_price = None
   while True:
-    get_my_securities()
-    get_orders(stock)
-    this_ord = orders[stock]
-
-    _, cur_sell = get_buy_and_sell_prices(this_ord)
-    if not want_price:
-      want_price = cur_sell
-
-    num_shares = int(my_securities[stock][0])
-    print "Selling %s: %d shares at %f" % (stock, num_shares, want_price)
-    run("ASK %s %f %d"% (stock, want_price, num_shares))
-
+    smart_sell_1_iter(stock)
     time.sleep(3)
-    want_price -= 0.05
 
 
 
+def estimate_price(stock):
+  cur_buy, cur_sell = get_buy_and_sell_prices(orders[stock])
+  return (cur_buy + cur_sell) / 2
 
-def find_differences():
+
+
+def pick_stock():
   get_securities()
   get_cash()
   for sec,_ in securities.iteritems():
     print "fetching orders", sec
     get_orders(sec)
 
+  """
   min_diff = 1000
   best_stock = None
 
@@ -236,15 +261,79 @@ def find_differences():
       best_stock = sec
 
   print "best stock is", best_stock, min_diff
+  """
 
+  magic_nums = []
   for sec,_ in securities.iteritems():
     E = securities[sec][0]
     N = how_many_can_buy(orders[sec], my_cash)
     D = securities[sec][1]
     M = sum_orders(sec)
-    magic_andrei_number = (E*N*D)+0.0 / (M+0.0)
-    print sec, E, N, D, magic_andrei_number
+    magic_andrei_number = (E*N*D+0.0) / (M+0.0)
+    print sec, magic_andrei_number
+    magic_nums.append((magic_andrei_number, sec))
 
+  magic_nums = sorted(magic_nums)
+  magic_nums.reverse()
+  # cannot buy until 4 minutes after selling it
+  for v,sec in magic_nums:
+    bad = False
+    if sec in time_sold and datetime.datetime.now() - time_sold[sec] < datetime.timedelta(minutes=4):
+      # if we just sold this less than 4 minutes ago
+      bad = True
+    if sec in my_securities and my_securities[sec][0] > 0:
+      # if we already have this stock
+      bad = True
+    if not bad:
+      return sec
+
+
+
+#time_bought = {"SNY": datetime.datetime(2015,3,21,2,21,0)}
+#time_sold = {"SNY": datetime.datetime(2015,3,21,2,21,0)}
+time_bought = {}
+time_sold = {}
+def autorun():
+  while True:
+    get_securities()
+    get_cash()
+    get_my_securities()
+    get_my_orders()
+    print "MY CASH:", my_cash
+
+    num_owned = 0
+    for sec, vl in my_securities.iteritems():
+      if vl[0] > 0:
+        num_owned += 1
+
+    # If we don't have any stocks, buy some
+    if my_cash > 300 and num_owned < 4:
+      stock = pick_stock()
+      print "we want to buy", stock
+      if stock:
+        buy_stock(stock)
+        time_bought[stock] = datetime.datetime.now()
+
+    # If we hold a stock for more than 1 minutes, start smart selling
+    for sec, vl in my_securities.iteritems():
+      we_hold = vl[0]
+      if we_hold > 0:
+        # if we hold less than $200, dump it, otherwise, smart sell
+        if datetime.datetime.now() - time_bought[sec] > datetime.timedelta(minutes=1):
+          if estimate_price(sec) * we_hold > 200:
+            smart_sell_1_iter(sec)
+          else:
+            sell_stock(sec)
+
+    old_my_securities = my_securities.copy()
+    get_securities()
+    # If we managed to sell something completely, update it
+    for sec, vl in old_my_securities.iteritems():
+      new_vl = my_securities[sec]
+      if vl[0] > 0 and new_vl[0] == 0:
+        time_sold[sec] = datetime.datetime.now()
+
+    time.sleep(2)
 
 
 
@@ -262,9 +351,13 @@ for sec,vs in my_securities.iteritems():
 print "MY ORDERS:", my_orders
 print "MY CASH:", my_cash
 
-#find_differences()
-#buy_stock("FB")
+#pick_stock()
+#buy_stock("XOM")
 #smart_sell("SNY")
-#print run("ASK FB 4.5 356")
+#sell_stock("SNY")
+#print run("ASK SNY 0.01 8")
+
+autorun()
+
 
 
