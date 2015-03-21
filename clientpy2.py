@@ -2,6 +2,7 @@ import socket
 import sys
 import time
 import datetime
+import copy
   
 def once_run(*commands):
   HOST, PORT = "codebb.cloudapp.net", 17429
@@ -173,7 +174,7 @@ def buy_stock(stock):
     buying_price = cur_sell + 0.1
     num_shares = int(my_cash / buying_price)
 
-    if num_shares == 0:
+    if num_shares < 2:
       break
 
     print "Buying %s: %d shares at %f" % (stock, num_shares, buying_price)
@@ -231,6 +232,41 @@ def smart_sell(stock):
   """
   while True:
     smart_sell_1_iter(stock)
+    time.sleep(3)
+
+
+def slow_buy(stock):
+  while True:
+    get_cash()
+    get_orders(stock)
+    this_ord = orders[stock]
+
+    cur_buy, cur_sell = get_buy_and_sell_prices(this_ord)
+    want_price = cur_buy + 0.04
+
+    num_shares = int(my_cash / want_price)
+    if num_shares < 5:
+      break
+
+    print "Buying %s: %d shares at %f" % (stock, num_shares, want_price)
+    run("BID %s %f %d"% (stock, want_price, num_shares))
+    time.sleep(3)
+
+def slow_sell(stock):
+  while True:
+    get_my_securities()
+    get_orders(stock)
+    this_ord = orders[stock]
+
+    cur_buy, cur_sell = get_buy_and_sell_prices(this_ord)
+    want_price = cur_sell - 0.04
+
+    num_shares = int(my_securities[stock][0])
+    if num_shares == 0:
+      break
+
+    print "Selling %s: %d shares at %f" % (stock, num_shares, want_price)
+    run("ASK %s %f %d"% (stock, want_price, num_shares))
     time.sleep(3)
 
 
@@ -295,7 +331,6 @@ time_bought = {}
 time_sold = {}
 def autorun():
   while True:
-    get_securities()
     get_cash()
     get_my_securities()
     get_my_orders()
@@ -318,46 +353,35 @@ def autorun():
     for sec, vl in my_securities.iteritems():
       we_hold = vl[0]
       if we_hold > 0:
-        # if we hold less than $200, dump it, otherwise, smart sell
-        if datetime.datetime.now() - time_bought[sec] > datetime.timedelta(minutes=1):
-          if estimate_price(sec) * we_hold > 200:
-            smart_sell_1_iter(sec)
-          else:
-            sell_stock(sec)
+        if datetime.datetime.now() - time_bought[sec] > datetime.timedelta(seconds=90):
+          smart_sell_1_iter(sec)
 
-    old_my_securities = my_securities.copy()
-    get_securities()
-    # If we managed to sell something completely, update it
-    for sec, vl in old_my_securities.iteritems():
-      new_vl = my_securities[sec]
-      if vl[0] > 0 and new_vl[0] == 0:
-        time_sold[sec] = datetime.datetime.now()
+          # If we managed to sell something completely, update it
+          time_sold[sec] = datetime.datetime.now()
 
     time.sleep(2)
 
 
-
-get_securities()
-get_cash()
-get_my_securities()
-get_my_orders()
-
-#print "SECURITIES:", securities
-print "MY SECURITIES:"
-for sec,vs in my_securities.iteritems():
-  if vs[0] > 0:
-    print sec, vs
-
-print "MY ORDERS:", my_orders
-print "MY CASH:", my_cash
 
 #pick_stock()
 #buy_stock("XOM")
 #smart_sell("SNY")
 #sell_stock("SNY")
 #print run("ASK SNY 0.01 8")
+"""
+sell_stock("ATVI")
+sell_stock("C")
+sell_stock("DIS")
+sell_stock("EA")
+sell_stock("FB")
+sell_stock("MSFT")
+sell_stock("SNE")
+sell_stock("TSLA")
+sell_stock("XOM")
+"""
 
 autorun()
+#print run("SECURITIES")
 
 
 
